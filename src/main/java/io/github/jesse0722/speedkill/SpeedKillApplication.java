@@ -1,5 +1,6 @@
 package io.github.jesse0722.speedkill;
 
+import io.github.jesse0722.speedkill.dao.SpeedKillMapper;
 import io.github.jesse0722.speedkill.module.SpeedKill;
 import io.github.jesse0722.speedkill.service.SpeedKillService;
 import org.mybatis.spring.annotation.MapperScan;
@@ -15,7 +16,7 @@ public class SpeedKillApplication implements InitializingBean {
     @Autowired
     private RedisTemplate<String, String> redisTemplate;
     @Autowired
-    private SpeedKillService speedKillService;
+    private SpeedKillMapper speedKillMapper;
 
     public static void main(String[] args) {
         SpringApplication.run(SpeedKillApplication.class, args);
@@ -23,8 +24,8 @@ public class SpeedKillApplication implements InitializingBean {
 
     @Override
     public void afterPropertiesSet() throws Exception {
-        SpeedKill speedKill = speedKillService.get(1000);
-        speedKillService.update(1000L, 1000000);
+        SpeedKill speedKill = speedKillMapper.get(1000);
+        speedKillMapper.updateStock(1000L, 1000000);
         redisTemplate.opsForValue().set(speedKill.getName(), String.valueOf(speedKill.getNumber()));
     }
 }
