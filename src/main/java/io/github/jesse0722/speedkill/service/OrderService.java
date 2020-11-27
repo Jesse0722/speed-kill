@@ -1,9 +1,7 @@
 package io.github.jesse0722.speedkill.service;
 
-import com.github.pagehelper.PageInfo;
 import io.github.jesse0722.speedkill.dao.OrderMapper;
 import io.github.jesse0722.speedkill.module.Order;
-import io.github.jesse0722.speedkill.utils.PageUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 

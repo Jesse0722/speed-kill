@@ -119,7 +119,7 @@ public class SpeedKillService {
             try {
                 //插入订单
                 orderMapper.insert(new Order(orderNo, id, 1)); //入库失败会导致数据不一致
-                Thread.sleep(10);
+                Thread.sleep(20);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }

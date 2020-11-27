@@ -32,9 +32,22 @@ CREATE TABLE `speedkill` (
   KEY `idx_create_time` (`create_time`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1001 DEFAULT CHARSET=utf8 COMMENT='秒杀库存表';
 
-SET FOREIGN_KEY_CHECKS = 1;
 
 INSERT INTO `testdb`.`speedkill`(`id`, `name`, `number`, `start_time`, `end_time`, `create_time`) VALUES (1000, 'iphone12 128g 黑色', 999, '2020-11-20 16:00:00', '2020-11-21 16:00:00', '2020-11-19 16:00:00');
+
+DROP TABLE IF EXISTS `order`;
+CREATE TABLE `order` (
+     `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'id',
+     `no` varchar(120) NOT NULL COMMENT '订单号',
+     `product_id` bigint NOT NULL COMMENT '秒杀商品id',
+     `status` int(4) NOT NULL COMMENT '秒杀状态',
+     `create_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+     PRIMARY KEY (`id`),
+     UNIQUE KEY `idx_no` (`no`),
+     KEY `idx_create_time` (`create_time`)
+) ENGINE=InnoDB AUTO_INCREMENT=1001 DEFAULT CHARSET=utf8 COMMENT='订单表';
+
+SET FOREIGN_KEY_CHECKS = 1;
 
 ```
 
@@ -53,7 +66,8 @@ INSERT INTO `testdb`.`speedkill`(`id`, `name`, `number`, `start_time`, `end_time
 
         if(speedKill.getNumber() > 0) {
             try {
-                Thread.sleep(100);
+                orderMapper.insert(new Order(orderNo, id, 1));
+                Thread.sleep(100);//模拟其他业务操作
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
@@ -70,7 +84,7 @@ INSERT INTO `testdb`.`speedkill`(`id`, `name`, `number`, `start_time`, `end_time
 
 
 
-### **方案2: 将库存数据同步到redis，利用redis单线程处理的机制保存库存安全。**
+### **方案2: 使用Redis分布式锁，来维护对库存的扣减**
 
 在活动开始前，实现将数据库里商品的库存同步到redis，秒杀活动开始后，就直接在redis中进行库存操作，等活动结束后，再将redis的库存同步到数据库。
 
@@ -88,11 +102,12 @@ INSERT INTO `testdb`.`speedkill`(`id`, `name`, `number`, `start_time`, `end_time
   			// set nx ex 
         Boolean flag = redisTemplate.opsForValue().setIfAbsent(redisLockKey, redisLockValue , 10, TimeUnit.SECONDS);
         if (flag) {
-            String s = redisTemplate.opsForValue().get(speedKill.getName());
-            redisTemplate.opsForValue().set(speedKill.getName(), String.valueOf(Integer.valueOf(s) - 1));
-
+            SpeedKill speedKill = speedKillMapper.get(id);
+            speedKillMapper.updateStock(id, speedKill.getNumber() - count);
             try {
-                Thread.sleep(100);
+                  //插入订单
+                orderMapper.insert(new Order(orderNo, id, 1));
+                Thread.sleep(100);//模拟其他业务操作
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
@@ -114,50 +129,54 @@ INSERT INTO `testdb`.`speedkill`(`id`, `name`, `number`, `start_time`, `end_time
 
 **测试结果**：共处理507笔交易，TPS:8.95
 
-可以看到相比方案1，方案2相对更抗压，但是性能也比较差，只有不到10的TPS，这是因为分布式锁限制了在更新库存也是排他性的，因此和方案一没有本质区别。
+可以看到相比方案1，方案2并没有什么提升，只有不到10的TPS，这是因为分布式锁限制了在更新库存也是排他性的，因此和方案一没有本质区别。
 
 
 
-### 方案3: 库存查询于扣除操作都在redis进行，通过lua脚本进行原子操作和redis的单线程特性，消除锁。
+### 方案3: 库存查询和扣除操作都在redis进行，通过lua脚本进行原子操作和redis的单线程特性来维护库存。
 
 利用lua脚本，将库存查询和减库存操作都放到redis中，通过redis单线程并且原子执行等特点提高处理速度。
 
 ```java
-public void updateStockInRedis(long id) {
-        SpeedKill speedKill = speedKillMapper.get(id);
-        String redisLockKey = speedKill.getName();
-        String count = "1";
-        //使用lua脚本释放锁
-        StringBuilder luaScript = new StringBuilder();
-        luaScript.append("if (redis.call('exists', KEYS[1]) == 1) then"); //查询商品
-        luaScript.append("  local stock  = tonumber(redis.call('get', KEYS[1]));"); //如果存在，获取库存
-        luaScript.append("  if (stock < tonumber(KEYS[2])) then return 0 \n");
-        luaScript.append("  else\n");
-        luaScript.append("      redis.call('set', KEYS[1], stock - tonumber(KEYS[2])); return 1;\n");//如果库存大于等于扣减数量则返回1，如果库存不足返回0")
-        luaScript.append("  end\n");
-        luaScript.append("else return -1\n"); //如果商品不存在则返回-1
-        luaScript.append("end\n");
+/***
+ * 使用Redis lua script保证库存扣减的原子性
+ *
+ * 口库存和增加等单需要保持数据一致
+ * @param orderNo
+ * @param id
+ * @param count
+  */
+public void updateStockInRedis(String orderNo, long id, int count) {
+    SpeedKill speedKill = speedKillMapper.get(id);
+    String key = speedKill.getName();
+    //使用lua脚本释放锁
+    StringBuilder luaScript = new StringBuilder();
+    luaScript.append("if (redis.call('exists', KEYS[1]) == 1) then"); //查询商品
+    luaScript.append("  local stock  = tonumber(redis.call('get', KEYS[1]));"); //如果存在，获取库存
+    luaScript.append("  if (stock < tonumber(KEYS[2])) then return 0 \n");
+    luaScript.append("  else\n");
+    luaScript.append("      redis.call('set', KEYS[1], stock - tonumber(KEYS[2])); return 1;\n");//如果库存大于等于扣减数量则返回1，如果库存不足返回0")
+    luaScript.append("  end\n");
+    luaScript.append("else return -1\n");
+    luaScript.append("end\n");
 
 
-        RedisScript<Long> redisScript = new DefaultRedisScript<>(luaScript.toString(), Long.class);
-        Object result = redisTemplate.execute(redisScript, Arrays.asList(redisLockKey, count));
+    RedisScript<Long> redisScript = new DefaultRedisScript<>(luaScript.toString(), Long.class);
+    Object result = redisTemplate.execute(redisScript, Arrays.asList(key, String.valueOf(count)));
 
-        if(Long.valueOf("0").equals(result)) {
-            System.out.println("商品不存在或已下架");
-            return;
+    if (Long.valueOf("1").equals(result)) {
+        try {
+            //插入订单
+            orderMapper.insert(new Order(orderNo, id, 1)); //入库失败会导致数据不一致
+            Thread.sleep(100); //模拟其他业务操作
+        } catch (InterruptedException e) {
+            e.printStackTrace();
         }
-        else if(Long.valueOf("1").equals(result)) {
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-            System.out.println("更新库存成功");
-        }
-        else {
-            System.out.println("库存不足");
-        }
+//            System.out.println("更新库存成功");
+    } else {
+        System.out.println("下单失败");
     }
+}
 ```
 
 **压测测试：**  wrk -t4 -c20 -d30S http://localhost:8080/order/kill/1000
@@ -168,18 +187,169 @@ public void updateStockInRedis(long id) {
 
 
 
+### **问题：**
+
+1. 方案三种如何保值redis中的库存与数据库数据一致性？
+
+2. 如何更进一步提高TPS？
+
+
+
+
+
+## 大批量订单处理---性能优化
+
+```
+1. 10-根据课程提供的场景，实现一个订单处理Service，模拟处理100万订单：后面提供模拟数据。
+2. 20-使用多线程方法优化订单处理，对比处理性能
+3. 30-使用并发工具和集合类改进订单Service，对比处理性能
+4. 30-使用分布式集群+分库分表方式处理拆分订单，对比处理性能：第6模块讲解分库分表。
+5. 30-使用读写分离和分布式缓存优化订单的读性能：第6、8模块讲解读写分离和缓存。
+```
+
+打捞下单成功的订单，假设有100万，进行后续处理，这里简单的修改订单状态模拟后续操作。
+
+### 方案一：单线程处理
+
+```java
+/***
+ * 单线程处理大量订单
+ * @param order
+ */
+public void dealOrderSingleThread(final Order order) {
+    long beginTime = System.currentTimeMillis();
+
+    int total = orderMapper.getTotal(order);
+
+    int offset = 0;
+    do {
+        List<Order> orders = orderMapper.findList(order, offset, limit);
+        orders.forEach(item -> {
+            item.setStatus(2);
+            orderMapper.update(item);
+        });
+        offset = offset + limit;
+    }while(offset < total);
+
+    long endTime = System.currentTimeMillis();
+    System.out.println("Order deal spend time:" + (endTime - beginTime));
+}
+```
+
+### 方案二：多线程处理
+
+```java
+/***
+ * 多线程处理订单
+ * @param order
+ */
+public void dealOrderMultiThread(final Order order) {
+    long beginTime = System.currentTimeMillis();
+
+    int total = orderMapper.getTotal(order);
+
+    int offset = 0;
+    do {
+        List<Order> orders = orderMapper.findList(order, limit, offset);
+        orders.forEach(item -> executorService.submit(() -> {
+            item.setStatus(2);
+            orderMapper.update(item);
+        }));
+        offset = offset + limit;
+    } while(offset < total);
+
+
+    long endTime = System.currentTimeMillis();
+    System.out.println("Order deal spend time:" + (endTime - beginTime));
+}
+```
+
+
+
+### 方案三：使用JUC并发工具
+
+使用fork-join框架，将大任务分解成多个子任务并发执行。
+
+```java
+/***
+ * JUC并发工具处理订单
+ * @param order
+ */
+public void dealOrderWithJUC(final Order order) {
+    long beginTime = System.currentTimeMillis();
+
+    int total = orderMapper.getTotal(order);
+
+    ForkJoinPool forkJoinPool = new ForkJoinPool();
+
+    OrderTask orderTask = new OrderTask(0, total, order);
+    Future<AtomicInteger> result = forkJoinPool.submit(orderTask);
+
+    try {
+        System.out.println("成功处理订单个数:" + result.get());
+    } catch (InterruptedException e) {
+        e.printStackTrace();
+    } catch (ExecutionException e) {
+        e.printStackTrace();
+    }
+    long endTime = System.currentTimeMillis();
+    System.out.println("Order deal spend time:" + (endTime - beginTime));
+}
+
+
+private class OrderTask extends RecursiveTask<AtomicInteger> {
+    public static final int THRESHOLD = limit;
+
+    private final int start;
+    private final int end;
+    private final Order order;
+
+    public OrderTask(int start, int end, Order order) {
+        this.start = start;
+        this.end = end;
+        this.order = order;
+    }
+
+    @Override
+    protected AtomicInteger compute() {
+        final AtomicInteger sum = new AtomicInteger(0);
+
+        boolean canCompute = (end - start) <= THRESHOLD;
+        if(canCompute) {
+            List<Order> orders = orderMapper.findList(order, start, limit);
+            orders.forEach(item -> executorService.submit(() -> {
+                item.setStatus(2);
+                orderMapper.update(item);
+                System.out.println("update success");
+                sum.incrementAndGet(); //计算更新成功的订单个数
+            }));
+        } else {
+            //如果任务大于阈值，就分裂成两个子任务计算
+            int middle = (start + end) / 2;
+            OrderTask leftTask = new OrderTask(start, middle, order);
+            OrderTask rightTask = new OrderTask(middle + 1, end, order);
+            //执行子任务
+            leftTask.fork();
+            rightTask.fork();
+            //等待子任务执行完，并得到结果
+            AtomicInteger leftResult = leftTask.join();
+            AtomicInteger rightResult = leftTask.join();
+            sum.set(leftResult.get() + rightResult.get());
+        }
+        return sum;
+    }
+}
+```
+
+
+
+### 问题：
+
+1. 有没有更好的处理大批量数据的方法？
+
+
+
 ## 后续优化的点
 
-1. 如何保证库存数量和数据库数据一致？redis的库存和用户秒杀信息，订单信息等。
-   * 使用分布式事务
-   * 使用消息队列
-
-2. 限流、熔断措施方案。
-
-3. 如果某些情况下，不适合将库存放在redis进行操作，还有米有其他提高秒杀并发能力的方案？
-
-   将竞争资源分组，类似ConcurrentHashmap。
-
-4. Cluster集群环境下，基于redis内存的方案，redis集群间数据同步是否可靠？
-
-   将库存分组，提供并行处理能力。
+1. 分库分表
+2. 读写分离
