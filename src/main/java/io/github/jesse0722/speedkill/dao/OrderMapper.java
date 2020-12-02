@@ -23,4 +23,5 @@ public interface OrderMapper {
 
     List<Order> findList(@Param("order") Order order, @Param("offset") int offset, @Param("limit")int limit);
 
+    void insertBatch(List<Order> list);
 }

@@ -5,6 +5,7 @@ import io.github.jesse0722.speedkill.module.SpeedKill;
 import io.github.jesse0722.speedkill.service.OrderService;
 import io.github.jesse0722.speedkill.service.SpeedKillService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -47,5 +48,11 @@ public class SpeedKillController {
 //        orderService.dealOrderMultiThread();
         orderService.dealOrderWithJUC(order);
         return "success";
+    }
+
+    @GetMapping("/insertBatch")
+    public String insertBatch(@RequestParam Integer number){
+        orderService.insertBatchGroup(number);
+        return "Success";
     }
 }

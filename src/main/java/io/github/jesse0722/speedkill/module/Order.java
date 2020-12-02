@@ -13,7 +13,6 @@ import java.util.UUID;
  */
 @Data
 @AllArgsConstructor
-@NoArgsConstructor
 public class Order {
 
     private long id;
@@ -31,5 +30,8 @@ public class Order {
         this.productId = productId;
         this.status = status;
         this.createTime = new Date();
+    }
+
+    public Order() {
     }
 }

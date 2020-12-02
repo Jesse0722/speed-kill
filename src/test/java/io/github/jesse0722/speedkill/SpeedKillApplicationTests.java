@@ -1,13 +1,12 @@
 package io.github.jesse0722.speedkill;
 
-import org.junit.jupiter.api.Test;
+import io.github.jesse0722.speedkill.service.SpeedKillService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
 class SpeedKillApplicationTests {
-
-    @Test
-    void contextLoads() {
-    }
+    @Autowired
+    private SpeedKillService speedKillService;
 
 }

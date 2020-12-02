@@ -2,10 +2,14 @@ package io.github.jesse0722.speedkill.service;
 
 import io.github.jesse0722.speedkill.dao.OrderMapper;
 import io.github.jesse0722.speedkill.module.Order;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.ibatis.session.SqlSessionFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -14,6 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @date 2020/11/25 22:08
  */
 @Service
+@Slf4j
 public class OrderService {
 
     @Autowired
@@ -21,6 +26,9 @@ public class OrderService {
 
     @Autowired
     private ExecutorService executorService;
+
+    @Autowired
+    private SqlSessionFactory sqlSessionFactory;
 
 
     private final static int limit = 50;
@@ -139,5 +147,44 @@ public class OrderService {
             }
             return sum;
         }
+    }
+
+    public void insertSingleThread(int number) {
+        long begin = System.currentTimeMillis();
+        for (int i = 0; i < number; i++) {
+            Order order = new Order(UUID.randomUUID().toString(), (long) (Math.random() * 100), 1);
+            try {
+                orderMapper.insert(order);
+            } catch (Exception e) {
+                log.error("{}", e.getMessage(),e);
+            }
+        }
+        System.out.println("insertSingleThread Spend Time:" + (System.currentTimeMillis() - begin));
+    }
+
+    public void insertMultiThread(int number) {
+        long begin = System.currentTimeMillis();
+        for (int i = 0; i < number; i++) {
+            Order order = new Order(UUID.randomUUID().toString(), (long) (Math.random() * 100), 1);
+            executorService.submit(()-> orderMapper.insert(order));
+        }
+        System.out.println("insertMultiThread Spend Time:" + (System.currentTimeMillis() - begin));
+    }
+
+    public void insertBatchGroup(final int number) {
+        long begin = System.currentTimeMillis();
+        int orderNum = number;
+        while(orderNum > 0) {
+            int initSize = orderNum > 500 ? 500 : orderNum;
+            List<Order> orders = new ArrayList<>(initSize);
+            for (int i = 0; i < initSize; i++) {
+                Order order = new Order(UUID.randomUUID().toString(), (long) (Math.random() * 100), 1);
+                orders.add(order);
+            }
+            orderMapper.insertBatch(orders);
+            orderNum = orderNum - 500;
+        }
+        System.out.println("insertBatchGroup Spend Time:" + (System.currentTimeMillis() - begin));
+
     }
 }

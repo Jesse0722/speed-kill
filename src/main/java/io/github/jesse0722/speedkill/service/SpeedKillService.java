@@ -4,7 +4,10 @@ import io.github.jesse0722.speedkill.dao.OrderMapper;
 import io.github.jesse0722.speedkill.dao.SpeedKillMapper;
 import io.github.jesse0722.speedkill.module.Order;
 import io.github.jesse0722.speedkill.module.SpeedKill;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -19,6 +22,7 @@ import java.util.concurrent.TimeUnit;
  * @date 2020/11/23 14:59
  */
 @Service
+@Slf4j
 public class SpeedKillService {
 
     private final long userId = 100000L;
@@ -32,6 +36,7 @@ public class SpeedKillService {
     private RedisTemplate<String,String> redisTemplate;
 
     public SpeedKill get(long id) {
+        log.error("{}", id);
         return speedKillMapper.get(id);
     }
 

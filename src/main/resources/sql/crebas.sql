@@ -29,7 +29,7 @@ CREATE TABLE `order` (
      PRIMARY KEY (`id`),
      UNIQUE KEY `idx_no` (`no`),
      KEY `idx_create_time` (`create_time`)
-) ENGINE=InnoDB AUTO_INCREMENT=1001 DEFAULT CHARSET=utf8 COMMENT='秒杀库存表';
+) ENGINE=InnoDB AUTO_INCREMENT=1001 DEFAULT CHARSET=utf8 COMMENT='订单表';
 
 SET FOREIGN_KEY_CHECKS = 1;
 

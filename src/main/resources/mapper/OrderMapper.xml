@@ -68,4 +68,17 @@
         where id = #{id}
     </update>
 
+    <insert id="insertBatch" useGeneratedKeys="false">
+        INSERT INTO `order` (
+        id,
+        no,
+        product_id,
+        status,
+        create_time
+        )
+        VALUES
+        <foreach collection="list" item="item" index="index" separator=",">
+            (#{item.id}, #{item.no}, #{item.productId}, #{item.status}, #{item.createTime})
+        </foreach>
+    </insert>
 </mapper>
